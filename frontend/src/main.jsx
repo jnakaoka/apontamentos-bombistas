@@ -8,7 +8,7 @@ function App(){
  const [token,setToken]=useState(sessionStorage.getItem('token')||''),[user,setUser]=useState(null),[page,setPage]=useState('entries'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[rows,setRows]=useState([]),[catalog,setCatalog]=useState({clients:[],sites:[],pumps:[],helpers:[]}),[form,setForm]=useState({...blank}),[editing,setEditing]=useState(null),[report,setReport]=useState(null),[users,setUsers]=useState([]),[history,setHistory]=useState(null),[filters,setFilters]=useState({date_from:'',date_to:'',operator_id:'',client_id:'',site_id:'',pump_id:''});
  async function api(path,options={}){
   const response=await fetch('/api'+path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...options.headers}});
-  if(!response.ok){let data=await response.json().catch(()=>({})); if(response.status===401&&token){sessionStorage.removeItem('token');setToken('');setUser(null);} throw Error(typeof data.detail==='string'?data.detail:'Verifique os campos e horários.');}
+  if(!response.ok){if(response.status>=500)throw Error('O servidor está indisponível. Tente novamente após verificar a API.');if(response.status===429)throw Error('Muitas tentativas. Aguarde um momento antes de tentar novamente.');let data=await response.json().catch(()=>({})); if(response.status===401&&token){sessionStorage.removeItem('token');setToken('');setUser(null);} throw Error(typeof data.detail==='string'?data.detail:'Verifique os campos e horários.');}
   return response;
  }
  async function action(fn){setError('');setBusy(true);try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}}
