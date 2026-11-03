@@ -32,9 +32,9 @@ docker compose logs -f api
 
 Aceda a http://localhost:8085 e entre com os dados ADMIN_EMAIL/ADMIN_PASSWORD. O administrador inicial só é criado quando ainda não existem utilizadores. Alterar essas variáveis depois não altera a conta existente.
 
-Cadastre primeiro cliente, obra e bomba; depois ajudantes e contas de bombistas. Ajudante é opcional. Registe um serviço, guarde o rascunho e submeta. No perfil administrador, aprove ou devolva com motivo. Consulte o relatório após a aprovação.
+O administrador pode criar e desativar utilizadores; o registo público não existe. Cada utilizador altera a própria senha em **Minha conta**; o administrador pode redefinir a senha de outra conta. Uma alteração ou redefinição revoga imediatamente os tokens anteriores. Não partilhe senhas iniciais por canais inseguros.\n\nCadastre primeiro cliente, obra e bomba; depois ajudantes e contas de bombistas. Ajudante é opcional. Registe um serviço, guarde o rascunho e submeta. No perfil administrador, aprove ou devolva com motivo. Consulte o relatório após a aprovação.
 
-Para testar no telemóvel na mesma rede, use `http://IP_DO_COMPUTADOR:8085` e permita essa porta na firewall. A base de dados e a API não expõem portas próprias no Compose. Para acesso pela internet, configure domínio e HTTPS no proxy de entrada.
+Por segurança, a porta web está associada a `127.0.0.1` e não fica exposta diretamente à rede. Para testes no telemóvel, configure um proxy HTTPS ou altere temporariamente o binding apenas num ambiente de desenvolvimento confiável. A base de dados e a API não expõem portas próprias no Compose. O Nginx frontal da VPS deve fazer proxy para `127.0.0.1:8085`. Para acesso pela internet, configure domínio e HTTPS no proxy de entrada.
 
 ## Atualizar
 
@@ -65,7 +65,7 @@ npm run build
 ## Limites desta V1
 
 - Origem/destino são locais em texto. Horas são do trabalho na obra, descontando pausas. Tempos/km de deslocamento ainda não são calculados.
-- Não inclui offline/PWA instalável, fotos, assinatura, GPS, faturação ou recuperação de senha por email.
+- Não inclui offline/PWA instalável, fotos, assinatura, GPS, faturação ou recuperação de senha por email. O administrador pode redefinir senhas dos bombistas.
 - Sem atribuição parcial de ajudante: o intervalo do serviço aplica-se à equipa toda.
 - CSV é o formato de exportação; não é um ficheiro XLSX nativo.
 - A primeira conta administrativa é criada pelo arranque; não há senha padrão funcional.
@@ -73,3 +73,7 @@ npm run build
 - Esta é uma V1 para validação operacional. O Compose completo com PostgreSQL deve ser testado no ambiente de instalação antes de utilização real.
 
 Detalhes das regras em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+
+## Preparação para produção
+
+A branch `feature/preparacao-producao` contém melhorias de segurança em revisão. **Não declarar pronto para produção** antes de executar testes backend/frontend, validar PostgreSQL e migrations em Docker, verificar permissões, configurar HTTPS, backups e restauração e fazer testes end-to-end. O `ADMIN_PASSWORD` é apenas para o primeiro arranque de uma base vazia; altere a senha inicial pela interface. Mantenha o `.env` fora do controlo de versões. Configure o proxy externo e os cabeçalhos de segurança adequados.
