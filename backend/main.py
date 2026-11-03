@@ -65,8 +65,14 @@ def hash_password(value):
     return salt+':'+digest
 
 def check_password(value,encoded):
-    salt,digest=encoded.split(':')
-    return hmac.compare_digest(digest,hashlib.pbkdf2_hmac('sha256',value.encode(),salt.encode(),600000).hex())
+    try:
+        salt,digest=encoded.split(':',1)
+        return hmac.compare_digest(digest,hashlib.pbkdf2_hmac('sha256',value.encode(),salt.encode(),600000).hex())
+    except (ValueError,TypeError):
+        return False
+
+def token_version(user):
+    return hashlib.sha256(user.password.encode()).hexdigest()[:24]
 
 @asynccontextmanager
 async def lifespan(app):
@@ -75,6 +81,7 @@ async def lifespan(app):
         if not db.scalar(select(User.id)):
             password=os.getenv('ADMIN_PASSWORD','')
             if len(password)<12: raise RuntimeError('Defina ADMIN_PASSWORD com pelo menos 12 caracteres.')
+            if not os.getenv('ADMIN_EMAIL','').strip(): raise RuntimeError('Defina ADMIN_EMAIL para criar o administrador inicial.')
             db.add(User(name='Administrador',email=os.getenv('ADMIN_EMAIL','admin@example.com').strip().lower(),password=hash_password(password),role='admin'))
             db.commit()
     yield
@@ -89,6 +96,7 @@ def current(auth:HTTPAuthorizationCredentials=Depends(bearer),db:Session=Depends
         user=db.get(User,int(payload['sub']))
     except (jwt.PyJWTError,ValueError,KeyError): raise HTTPException(401,'Sessão inválida ou expirada.')
     if not user or not user.active: raise HTTPException(401,'Utilizador inativo.')
+    if payload.get('ver')!=token_version(user): raise HTTPException(401,'Sessão revogada. Entre novamente.')
     return user
 
 def admin(user:User=Depends(current)):
@@ -102,6 +110,13 @@ class UserInput(BaseModel):
     email:str=Field(min_length=3,max_length=254)
     password:str=Field(min_length=12,max_length=200)
     role:Literal['admin','bombista']='bombista'
+class PasswordChange(BaseModel):
+    current_password:str
+    new_password:str=Field(min_length=12,max_length=200)
+
+class AdminPasswordReset(BaseModel):
+    new_password:str=Field(min_length=12,max_length=200)
+
 class CatalogInput(BaseModel):
     name:str=Field(min_length=1,max_length=200)
     address:str=Field(default='',max_length=500)
@@ -176,10 +191,18 @@ def health(): return {'status':'ok'}
 def login(data:Login,db:Session=Depends(session)):
     u=db.scalar(select(User).where(User.email==data.email.strip().lower()))
     if not u or not u.active or not check_password(data.password,u.password): raise HTTPException(401,'Email ou senha incorretos.')
-    token=jwt.encode({'sub':str(u.id),'exp':datetime.now(timezone.utc)+timedelta(hours=8)},SECRET,algorithm='HS256')
+    token=jwt.encode({'sub':str(u.id),'exp':datetime.now(timezone.utc)+timedelta(hours=8),'ver':token_version(u)},SECRET,algorithm='HS256')
     return {'access_token':token,'user':user_out(u)}
 @app.get('/auth/me')
 def me(user:User=Depends(current)): return user_out(user)
+@app.post('/auth/change-password')
+def change_password(data:PasswordChange,user:User=Depends(current),db:Session=Depends(session)):
+    if not check_password(data.current_password,user.password): raise HTTPException(400,'Palavra-passe atual incorreta.')
+    if data.current_password==data.new_password: raise HTTPException(422,'A nova palavra-passe deve ser diferente.')
+    user.password=hash_password(data.new_password)
+    db.commit()
+    return {'message':'Palavra-passe alterada. Inicie sessão novamente.'}
+
 @app.get('/users')
 def users(user:User=Depends(admin),db:Session=Depends(session)): return [user_out(u) for u in db.scalars(select(User))]
 @app.post('/users',status_code=201)
@@ -192,7 +215,18 @@ def user_active(id:int,active:bool,user:User=Depends(admin),db:Session=Depends(s
     u=db.get(User,id)
     if not u: raise HTTPException(404,'Utilizador não encontrado.')
     if id==user.id and not active: raise HTTPException(422,'Não pode desativar a própria conta.')
+    if not active and u.role=='admin':
+        active_admins=db.scalars(select(User).where(User.role=='admin',User.active==True)).all()
+        if len(active_admins)<=1: raise HTTPException(422,'Não é possível desativar o último administrador ativo.')
     u.active=active; db.commit(); return user_out(u)
+
+@app.post('/users/{id}/reset-password')
+def reset_password(id:int,data:AdminPasswordReset,user:User=Depends(admin),db:Session=Depends(session)):
+    u=db.get(User,id)
+    if not u: raise HTTPException(404,'Utilizador não encontrado.')
+    u.password=hash_password(data.new_password)
+    db.commit()
+    return {'message':'Palavra-passe redefinida. Sessões anteriores revogadas.'}
 
 KINDS={'clients','sites','pumps','helpers'}
 @app.get('/catalog/{kind}')
