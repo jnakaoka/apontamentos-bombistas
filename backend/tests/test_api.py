@@ -47,3 +47,30 @@ def test_workflow_and_permissions():
         assert c.post('/entries',headers=bh,json={**second,'client_id':other}).status_code==422
         assert c.patch('/users/2/active?active=false',headers=ah).status_code==200
         assert c.get('/entries',headers=bh).status_code==401
+
+
+def test_password_management_and_session_revocation():
+    with TestClient(app) as c:
+        def login(email,password):
+            return c.post('/auth/login',json={'email':email,'password':password})
+        a=login('admin@example.com','test-admin-password').json()['access_token']
+        ah={'Authorization':'Bearer '+a}
+        assert c.post('/auth/change-password',headers=ah,json={'current_password':'wrong','new_password':'a-new-password-123'}).status_code==400
+        r=c.post('/auth/change-password',headers=ah,json={'current_password':'test-admin-password','new_password':'a-new-password-123'})
+        assert r.status_code==200,r.text
+        assert c.get('/auth/me',headers=ah).status_code==401
+        assert login('admin@example.com','test-admin-password').status_code==401
+        a=login('admin@example.com','a-new-password-123').json()['access_token']
+        ah={'Authorization':'Bearer '+a}
+        r=c.post('/users',headers=ah,json={'name':'Teste senha','email':'senha@example.com','password':'old-password-123'})
+        assert r.status_code==201,r.text
+        uid=r.json()['id']
+        old=login('senha@example.com','old-password-123').json()['access_token']
+        bh={'Authorization':'Bearer '+old}
+        assert c.post(f'/users/{uid}/reset-password',headers=bh,json={'new_password':'other-password-123'}).status_code==403
+        assert c.post(f'/users/{uid}/reset-password',headers=ah,json={'new_password':'other-password-123'}).status_code==200
+        assert c.get('/auth/me',headers=bh).status_code==401
+        assert login('senha@example.com','old-password-123').status_code==401
+        assert login('senha@example.com','other-password-123').status_code==200
+        assert c.patch(f'/users/{uid}/active?active=false',headers=ah).status_code==200
+        assert login('senha@example.com','other-password-123').status_code==401
