@@ -244,8 +244,10 @@ def catalog_validate(kind,data,db):
         if not c or c.kind!='clients' or not c.active: raise HTTPException(422,'Selecione um cliente ativo.')
     elif data.client_id is not None: raise HTTPException(422,'Cliente só se aplica a obras.')
 @app.post('/catalog/{kind}',status_code=201)
-def add_catalog(kind:str,data:CatalogInput,user:User=Depends(admin),db:Session=Depends(session)):
+def add_catalog(kind:str,data:CatalogInput,user:User=Depends(current),db:Session=Depends(session)):
     catalog_validate(kind,data,db)
+    # Bombistas podem criar cadastros ativos, mas não gerir o estado dos existentes.
+    if user.role!='admin' and not data.active: raise HTTPException(403,'Só o administrador pode criar cadastros inativos.')
     c=Catalog(kind=kind,**data.model_dump()); db.add(c); db.commit(); return catalog_out(c)
 @app.put('/catalog/{kind}/{id}')
 def edit_catalog(kind:str,id:int,data:CatalogInput,user:User=Depends(admin),db:Session=Depends(session)):
